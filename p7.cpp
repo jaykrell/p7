@@ -172,26 +172,26 @@ struct pecoff_file_header_t
 	uint Characteristics;
 };
 
-uint read8 (void **a)
+uint read8 (char **a)
 {
 	uchar* b = (u*)*a;
 	*a = b + 1;
 	return *b;
 }
 
-uint read16le (void **a)
+uint read16le (char **a)
 {
 	uint b = read8(a);
 	return b | (read8(a) << 8);
 }
 
-uint read32le (void **a)
+uint read32le (char **a)
 {
 	uint b = read16le(a);
 	return b | (read16le(a) << 16);
 }
 
-uint64 read64le (void **a)
+uint64 read64le (char **a)
 {
 	uint b = read32le(a);
 	return b | ((uint64)read32le(a) << 32);
@@ -209,18 +209,18 @@ struct pe_section_header_t
 	uint NumberOfLinenumbers;
 	uint Characteristics;
 
-	void unpack (const void *a)
+	void unpack(char** a, char* end)
 	{
 		memcpy(Name, a, 8);
 		a = (char*)a + 8;
-		VirtualAddress = read32le (&a);
-		SizeOfRawData = read32le (&a);
-		PointerToRawData = read32le (&a);
-		PointerToRelocations = read32le (&a);
-		PointerToLinenumbers = read32le (&a);
-		NumberOfRelocations = read16le (&a);
-		NumberOfLinenumbers = read16le (&a);
-		Characteristics = read32le (&a);
+		VirtualAddress = read32le (a);
+		SizeOfRawData = read32le (a);
+		PointerToRawData = read32le (a);
+		PointerToRelocations = read32le (a);
+		PointerToLinenumbers = read32le (a);
+		NumberOfRelocations = read16le (a);
+		NumberOfLinenumbers = read16le (a);
+		Characteristics = read32le (a);
 	}
 };
 
@@ -234,15 +234,115 @@ struct pe_file_header_t
 	uint SizeOfOptionalHeader;
 	uint Characteristics;
 
-	void unpack (const void *a)
+	void unpack(char** a, char* end)
 	{
-		Machine = read16le (&a);
-		NumberOfSections = read16le (&a);
-		TimeDateStamp = read32le (&a);
-		PointerToSymbolTable = read32le (&a);
-		NumberOfSymbols = read32le (&a);
-		SizeOfOptionalHeader = read16le (&a);
-		Characteristics = read16le (&a);
+		Machine = read16le (a);
+		NumberOfSections = read16le (a);
+		TimeDateStamp = read32le (a);
+		PointerToSymbolTable = read32le (a);
+		NumberOfSymbols = read32le (a);
+		SizeOfOptionalHeader = read16le (a);
+		Characteristics = read16le (a);
+	}
+};
+
+struct pe_data_directory_t
+{
+	uint VirtualAddress;
+	uint Size;
+};
+
+struct pe_optional_header_t
+{
+	uint Magic;
+	uint MajorLinkerVersion;
+	uint MinorLinkerVersion;
+	uint SizeOfCode;
+	uint SizeOfInitializedData;
+	uint SizeOfUninitializedData;
+	uint AddressOfEntryPoint;
+	uint BaseOfCode;
+	uint BaseOfData;
+	uint64 ImageBase;
+	uint SectionAlignment;
+	uint FileAlignment;
+	uint MajorOperatingSystemVersion;
+	uint MinorOperatingSystemVersion;
+	uint MajorImageVersion;
+	uint MinorImageVersion;
+	uint MajorSubsystemVersion;
+	uint MinorSubsystemVersion;
+	uint Win32VersionValue;
+	uint SizeOfImage;
+	uint SizeOfHeaders;
+	uint CheckSum;
+	uint Subsystem;
+	uint DllCharacteristics;
+	uint64 SizeOfStackReserve;
+	uint64 SizeOfStackCommit;
+	uint64 SizeOfHeapReserve;
+	uint64 SizeOfHeapCommit;
+	uint LoaderFlags;
+	uint NumberOfRvaAndSizes;
+	pe_data_directory_t DataDirectory[16];
+
+	void unpack(char** a, char* end)
+	{
+		Magic = unpack32le(a);
+		bool pe32 = magic == 0x10b;
+		bool pe64 = magic == 0x20b;
+		if (!pe32 && !pe64)
+			throw image_format_invalid_t();
+		MajorLinkerVersion = unpack8le(a);
+		MinorLinkerVersion = unpack8le(a);
+		SizeOfCode = unpack32le(a);
+		SizeOfInitializedData = unpack32le(a);
+		SizeOfUninitializedData = unpack32le(a);
+		AddressOfEntryPoint = unpack32le(a);
+		BaseOfCode = unpack32le(a);
+		if (pe32)
+			BaseOfData = unpack32le(a);
+		if (pe64)
+			ImageBase = unpack64le(a);
+		else
+			ImageBase = unpack32le(a);
+		SectionAlignment = unpack32le(a);
+		FileAlignment = unpack32le(a);
+		MajorOperatingSystemVersion = unpack16le(a);
+		MinorOperatingSystemVersion = unpack16le(a);
+		MajorImageVersion = unpack16le(a);
+		MinorImageVersion = unpack16le(a);
+		MajorSubsystemVersion = unpack16le(a);
+		MinorSubsystemVersion = unpack16le(a);
+		Win32VersionValue = unpack32le(a);
+		SizeOfImage = unpack32le(a);
+		SizeOfHeaders = unpack32le(a);
+		CheckSum = unpack32le(a);
+		Subsystem = unpack16le(a);
+		DllCharacteristics = unpack32le(a);
+		if (pe64)
+		{
+			SizeOfStackReserve = unpack64le(a);
+			SizeOfStackCommit = unpack64le(a);
+			SizeOfHeapReserve = unpack64le(a);
+			SizeOfHeapCommit = unpack64le(a);
+		}
+		else
+		{
+			SizeOfStackReserve = unpack32le(a);
+			SizeOfStackCommit = unpack32le(a);
+			SizeOfHeapReserve = unpack32le(a);
+			SizeOfHeapCommit = unpack32le(a);
+		}
+		LoaderFlags = unpack32le(a);
+		NumberOfRvaAndSizes = unpack32le(a);
+		if (NumberOfRvaAndSizes > 16)
+			NumberOfRvaAndSizes = 16;
+		for (uint i = 0; i < NumberOfRvaAndSizes; ++i)
+		{
+			DataDirectory.VirtualAddress = unpack32le(a);
+			DataDirectory.Size = unpack32le(a);
+		}
 	}
 };
 
